@@ -1,6 +1,6 @@
 const socket = io();
 
-const MAX_QUEUE_SIZE = 20;
+const MAX_QUEUE_SIZE = 200;
 const NEXT_EMIT_LOCK_MS = 2500;
 
 let player = null;
