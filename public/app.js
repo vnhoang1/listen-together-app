@@ -2,11 +2,13 @@ const socket = io();
 
 let player = null;
 let playerReady = false;
+let playerCreated = false;
 let latestState = null;
 let joinedRoom = false;
 let localUserUnlocked = false;
 let suppressPlayerEventsUntil = 0;
 let syncingFromServer = false;
+let hiddenPauseGuardUntil = 0;
 
 const els = {
   nameInput: document.getElementById('nameInput'),
@@ -196,13 +198,18 @@ function loadRoomVideo(playback, forcePlay = false) {
   syncingFromServer = true;
   setSuppress(1800);
 
-  if (currentVideoId !== playback.videoId) {
-    player.loadVideoById({
-      videoId: playback.videoId,
-      startSeconds: expected
-    });
-  } else {
-    player.seekTo(expected, true);
+  try {
+    if (currentVideoId !== playback.videoId) {
+      player.loadVideoById({
+        videoId: playback.videoId,
+        startSeconds: expected
+      });
+    } else {
+      player.seekTo(expected, true);
+    }
+  } catch (_) {
+    syncingFromServer = false;
+    return;
   }
 
   const shouldPlay = forcePlay || (playback.isPlaying && localUserUnlocked);
@@ -243,10 +250,15 @@ function tryPlayCurrentSynced() {
   setSuppress(1800);
 
   if (currentVideoId !== playback.videoId) {
-    player.loadVideoById({
-      videoId: playback.videoId,
-      startSeconds: expected
-    });
+    try {
+      player.loadVideoById({
+        videoId: playback.videoId,
+        startSeconds: expected
+      });
+    } catch (_) {
+      syncingFromServer = false;
+      return;
+    }
 
     setTimeout(() => {
       try {
@@ -315,7 +327,15 @@ function renderState(state) {
   }
 }
 
-window.onYouTubeIframeAPIReady = function () {
+function createYoutubePlayer() {
+  if (playerCreated) return;
+  if (!window.YT || !window.YT.Player) return;
+
+  const playerEl = document.getElementById('player');
+  if (!playerEl) return;
+
+  playerCreated = true;
+
   player = new YT.Player('player', {
     width: '100%',
     height: '100%',
@@ -350,11 +370,20 @@ window.onYouTubeIframeAPIReady = function () {
 
         if (syncingFromServer) return;
 
+        // Không tự đồng bộ pause/play từ state change nữa.
+        // Chỉ dùng nút Play / Tạm dừng để tránh lỗi minimize/background.
         if (state === YT.PlayerState.PLAYING) {
           return;
         }
 
         if (state === YT.PlayerState.PAUSED) {
+          const hiddenRecently =
+            document.hidden || Date.now() < hiddenPauseGuardUntil;
+
+          if (hiddenRecently) {
+            return;
+          }
+
           return;
         }
       },
@@ -365,7 +394,24 @@ window.onYouTubeIframeAPIReady = function () {
       }
     }
   });
+}
+
+window.onYouTubeIframeAPIReady = function () {
+  createYoutubePlayer();
 };
+
+// Phòng trường hợp YouTube API đã load xong trước khi app.js chạy
+if (window.YT && window.YT.Player) {
+  createYoutubePlayer();
+}
+
+// Khi minimize / background, đừng để app hiểu nhầm là pause thật
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) {
+    hiddenPauseGuardUntil = Date.now() + 3000;
+    setSuppress(1500);
+  }
+});
 
 socket.on('connect', () => {
   console.log('[socket] connected', socket.id);
@@ -403,10 +449,15 @@ socket.on('playback:update', (payload) => {
     syncingFromServer = true;
     setSuppress(1800);
 
-    player.loadVideoById({
-      videoId: payload.videoId,
-      startSeconds: position
-    });
+    try {
+      player.loadVideoById({
+        videoId: payload.videoId,
+        startSeconds: position
+      });
+    } catch (_) {
+      syncingFromServer = false;
+      return;
+    }
 
     setTimeout(() => {
       try {
@@ -434,10 +485,15 @@ socket.on('playback:update', (payload) => {
     const currentVideoId = getCurrentVideoId();
 
     if (currentVideoId !== payload.videoId) {
-      player.loadVideoById({
-        videoId: payload.videoId,
-        startSeconds: position
-      });
+      try {
+        player.loadVideoById({
+          videoId: payload.videoId,
+          startSeconds: position
+        });
+      } catch (_) {
+        syncingFromServer = false;
+        return;
+      }
 
       setTimeout(() => {
         try {
@@ -477,10 +533,15 @@ socket.on('playback:update', (payload) => {
     const currentVideoId = getCurrentVideoId();
 
     if (currentVideoId !== payload.videoId) {
-      player.loadVideoById({
-        videoId: payload.videoId,
-        startSeconds: position
-      });
+      try {
+        player.loadVideoById({
+          videoId: payload.videoId,
+          startSeconds: position
+        });
+      } catch (_) {
+        syncingFromServer = false;
+        return;
+      }
     } else {
       try {
         player.seekTo(position, true);
@@ -509,10 +570,15 @@ socket.on('playback:update', (payload) => {
     const currentVideoId = getCurrentVideoId();
 
     if (currentVideoId !== payload.videoId) {
-      player.loadVideoById({
-        videoId: payload.videoId,
-        startSeconds: position
-      });
+      try {
+        player.loadVideoById({
+          videoId: payload.videoId,
+          startSeconds: position
+        });
+      } catch (_) {
+        syncingFromServer = false;
+        return;
+      }
 
       setTimeout(() => {
         try {
@@ -624,8 +690,10 @@ document.querySelectorAll('[data-reaction]').forEach((node) => {
   };
 });
 
+// Resync nhẹ mỗi 3 giây để không bị lệch lâu
 setInterval(() => {
   if (!playerReady || !latestState?.playback?.videoId) return;
+  if (document.hidden) return;
 
   const playback = latestState.playback;
   const expected = getExpectedPosition(playback);
