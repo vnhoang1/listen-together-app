@@ -2,6 +2,8 @@ const socket = io();
 
 const MAX_QUEUE_SIZE = 200;
 const NEXT_EMIT_LOCK_MS = 2500;
+const SEARCH_DEBOUNCE_MS = 400;
+const SEARCH_LIMIT = 8;
 
 let player = null;
 let playerReady = false;
@@ -15,14 +17,18 @@ let hiddenPauseGuardUntil = 0;
 let nextTrackEmitLockedUntil = 0;
 let lastLoadedVideoId = '';
 let recentTrackSwitchUntil = 0;
+let searchDebounceTimer = null;
+let currentSearchToken = 0;
 
 const els = {
   nameInput: document.getElementById('nameInput'),
   roomInput: document.getElementById('roomInput'),
   joinBtn: document.getElementById('joinBtn'),
   urlInput: document.getElementById('urlInput'),
-  titleInput: document.getElementById('titleInput'),
   addBtn: document.getElementById('addBtn'),
+  searchInput: document.getElementById('searchInput'),
+  searchBtn: document.getElementById('searchBtn'),
+  searchResults: document.getElementById('searchResults'),
   queueList: document.getElementById('queueList'),
   chatList: document.getElementById('chatList'),
   memberList: document.getElementById('memberList'),
@@ -261,6 +267,101 @@ function tryResumeAfterLoad(shouldPlay = false, retries = 8) {
   };
 
   run(retries);
+}
+
+function renderSearchResults(items = []) {
+  if (!els.searchResults) return;
+
+  if (!items.length) {
+    els.searchResults.innerHTML = '';
+    return;
+  }
+
+  els.searchResults.innerHTML = items
+    .map((item) => `
+      <div class="search-item" data-add-video="${escapeHtml(item.videoId)}" data-add-title="${escapeHtml(item.title)}">
+        <img class="search-thumb" src="${escapeHtml(item.thumbnail || '')}" alt="${escapeHtml(item.title)}" />
+        <div class="search-info">
+          <div class="search-title">${escapeHtml(item.title)}</div>
+          <div class="search-channel">${escapeHtml(item.channelTitle || '')}</div>
+        </div>
+      </div>
+    `)
+    .join('');
+
+  els.searchResults.querySelectorAll('[data-add-video]').forEach((node) => {
+    node.onclick = () => {
+      if (!joinedRoom) {
+        toast('Bạn phải vào phòng trước');
+        return;
+      }
+
+      if ((latestState?.queue || []).length >= MAX_QUEUE_SIZE) {
+        toast(`Hàng chờ tối đa ${MAX_QUEUE_SIZE} bài`);
+        return;
+      }
+
+      const videoId = node.dataset.addVideo;
+      const title = node.dataset.addTitle || '';
+
+      socket.emit('queue:add', {
+        url: `https://www.youtube.com/watch?v=${videoId}`,
+        title
+      });
+
+      if (els.searchInput) {
+        els.searchInput.value = '';
+      }
+      els.searchResults.innerHTML = '';
+    };
+  });
+}
+
+async function searchYoutubeVideos(query) {
+  const res = await fetch(`/api/youtube/search?q=${encodeURIComponent(query)}&limit=${SEARCH_LIMIT}`);
+
+  if (!res.ok) {
+    throw new Error(`Search failed: ${res.status}`);
+  }
+
+  const data = await res.json();
+  return Array.isArray(data.items) ? data.items : [];
+}
+
+async function performSearch(query) {
+  const q = String(query || '').trim();
+
+  if (!els.searchResults) return;
+  if (!q) {
+    els.searchResults.innerHTML = '';
+    return;
+  }
+
+  const token = ++currentSearchToken;
+  els.searchResults.innerHTML = '<div class="search-empty">Đang tìm...</div>';
+
+  try {
+    const items = await searchYoutubeVideos(q);
+    if (token !== currentSearchToken) return;
+
+    if (!items.length) {
+      els.searchResults.innerHTML = '<div class="search-empty">Không tìm thấy kết quả</div>';
+      return;
+    }
+
+    renderSearchResults(items);
+  } catch (err) {
+    console.error(err);
+    if (token !== currentSearchToken) return;
+    els.searchResults.innerHTML = '<div class="search-empty">Không tìm được video</div>';
+  }
+}
+
+function scheduleSearch() {
+  clearTimeout(searchDebounceTimer);
+  searchDebounceTimer = setTimeout(() => {
+    performSearch(els.searchInput?.value || '');
+  }, SEARCH_DEBOUNCE_MS);
 }
 
 function loadRoomVideo(playback, forcePlay = false) {
@@ -508,6 +609,7 @@ socket.on('toast', (payload) => {
 });
 
 socket.on('room:state', (state) => {
+  joinedRoom = true;
   renderState(state);
 });
 
@@ -572,7 +674,7 @@ socket.on('playback:update', (payload) => {
           startSeconds: position
         });
         lastLoadedVideoId = payload.videoId;
-      recentTrackSwitchUntil = Date.now() + 6000;
+        recentTrackSwitchUntil = Date.now() + 6000;
       } catch (_) {
         syncingFromServer = false;
         return;
@@ -618,7 +720,7 @@ socket.on('playback:update', (payload) => {
           startSeconds: position
         });
         lastLoadedVideoId = payload.videoId;
-      recentTrackSwitchUntil = Date.now() + 6000;
+        recentTrackSwitchUntil = Date.now() + 6000;
       } catch (_) {
         syncingFromServer = false;
         return;
@@ -657,7 +759,7 @@ socket.on('playback:update', (payload) => {
           startSeconds: position
         });
         lastLoadedVideoId = payload.videoId;
-      recentTrackSwitchUntil = Date.now() + 6000;
+        recentTrackSwitchUntil = Date.now() + 6000;
       } catch (_) {
         syncingFromServer = false;
         return;
@@ -692,9 +794,13 @@ els.joinBtn.onclick = () => {
   const roomId = (els.roomInput.value || 'main-room').trim() || 'main-room';
   const name = (els.nameInput.value || 'Khách').trim() || 'Khách';
 
+  if (!socket.connected) {
+    toast('Chưa kết nối tới server');
+    return;
+  }
+
   socket.emit('room:join', { roomId, name });
-  joinedRoom = true;
-  els.roomSummary.textContent = 'Đã vào phòng, đang tải player...';
+  els.roomSummary.textContent = 'Đang vào phòng...';
 };
 
 els.addBtn.onclick = () => {
@@ -709,16 +815,14 @@ els.addBtn.onclick = () => {
   }
 
   const url = (els.urlInput.value || '').trim();
-  const title = (els.titleInput.value || '').trim();
 
   if (!url) {
     toast('Bạn chưa nhập link YouTube');
     return;
   }
 
-  socket.emit('queue:add', { url, title });
+  socket.emit('queue:add', { url, title: '' });
   els.urlInput.value = '';
-  els.titleInput.value = '';
 };
 
 els.sendBtn.onclick = () => {
@@ -738,6 +842,29 @@ els.chatInput.addEventListener('keydown', (e) => {
   if (e.key === 'Enter') {
     els.sendBtn.click();
   }
+});
+
+els.urlInput?.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') {
+    els.addBtn.click();
+  }
+});
+
+els.searchInput?.addEventListener('input', () => {
+  scheduleSearch();
+});
+
+els.searchInput?.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') {
+    e.preventDefault();
+    clearTimeout(searchDebounceTimer);
+    performSearch(els.searchInput.value || '');
+  }
+});
+
+els.searchBtn?.addEventListener('click', () => {
+  clearTimeout(searchDebounceTimer);
+  performSearch(els.searchInput?.value || '');
 });
 
 els.playBtn.onclick = () => {
