@@ -289,12 +289,13 @@ function loadRoomVideo(playback, forcePlay = false) {
   const shouldPlay = forcePlay || (playback.isPlaying && localUserUnlocked);
 
   setTimeout(() => {
-    tryResumeAfterLoad(shouldPlay, 8);
-  } finally {
-    setTimeout(() => {
-      syncingFromServer = false;
-    }, 400);
-  }
+    try {
+      tryResumeAfterLoad(shouldPlay, 8);
+    } finally {
+      setTimeout(() => {
+        syncingFromServer = false;
+      }, 400);
+    }
   }, 300);
 }
 
@@ -331,12 +332,13 @@ function tryPlayCurrentSynced() {
     }
 
     setTimeout(() => {
-      tryResumeAfterLoad(true, 8);
-    } finally {
-      setTimeout(() => {
-        syncingFromServer = false;
-      }, 400);
-    }
+      try {
+        tryResumeAfterLoad(true, 8);
+      } finally {
+        setTimeout(() => {
+          syncingFromServer = false;
+        }, 400);
+      }
     }, 350);
   } else {
     try {
@@ -539,12 +541,13 @@ socket.on('playback:update', (payload) => {
     }
 
     setTimeout(() => {
-      tryResumeAfterLoad(localUserUnlocked, 10);
-    } finally {
-      setTimeout(() => {
-        syncingFromServer = false;
-      }, 500);
-    }
+      try {
+        tryResumeAfterLoad(localUserUnlocked, 10);
+      } finally {
+        setTimeout(() => {
+          syncingFromServer = false;
+        }, 500);
+      }
     }, 450);
 
     return;
@@ -571,12 +574,13 @@ socket.on('playback:update', (payload) => {
       }
 
       setTimeout(() => {
-        tryResumeAfterLoad(localUserUnlocked, 8);
-      } finally {
-        setTimeout(() => {
-          syncingFromServer = false;
-        }, 400);
-      }
+        try {
+          tryResumeAfterLoad(localUserUnlocked, 8);
+        } finally {
+          setTimeout(() => {
+            syncingFromServer = false;
+          }, 400);
+        }
       }, 350);
     } else {
       try {
