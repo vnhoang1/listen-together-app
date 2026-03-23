@@ -1,9 +1,12 @@
 const socket = io();
 
-let player;
+let player = null;
 let playerReady = false;
 let latestState = null;
 let joinedRoom = false;
+let localUserUnlocked = false;
+let suppressPlayerEventsUntil = 0;
+let syncingFromServer = false;
 
 const els = {
   nameInput: document.getElementById('nameInput'),
@@ -34,6 +37,15 @@ function nowSec() {
   return Date.now() / 1000;
 }
 
+function escapeHtml(str) {
+  return String(str || '')
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#39;');
+}
+
 function getExpectedPosition(playback) {
   if (!playback || !playback.videoId) return 0;
 
@@ -42,15 +54,6 @@ function getExpectedPosition(playback) {
   }
 
   return Math.max(0, playback.pausedAt || playback.position || 0);
-}
-
-function escapeHtml(str) {
-  return String(str || '')
-    .replaceAll('&', '&amp;')
-    .replaceAll('<', '&lt;')
-    .replaceAll('>', '&gt;')
-    .replaceAll('"', '&quot;')
-    .replaceAll("'", '&#39;');
 }
 
 function getCurrentVideoId() {
@@ -69,27 +72,42 @@ function getCurrentTimeSafe() {
   }
 }
 
-function renderState(state) {
-  latestState = state;
+function setSuppress(ms = 1200) {
+  suppressPlayerEventsUntil = Date.now() + ms;
+}
 
-  const playback = state.playback || {};
-  const queue = state.queue || [];
-  const users = state.users || [];
-  const currentItem = queue[state.currentIndex];
+function isSuppressed() {
+  return Date.now() < suppressPlayerEventsUntil;
+}
+
+function updateHeader(playback, currentItem, usersCount) {
+  const expected = Math.floor(getExpectedPosition(playback));
+
+  if (!playback?.videoId) {
+    els.trackMeta.textContent = 'Chưa có bài nào';
+    els.statusBadge.textContent = 'Chưa phát';
+    els.roomSummary.textContent = `${usersCount} người · Chưa có video`;
+    return;
+  }
 
   els.trackMeta.textContent = currentItem
-    ? `${currentItem.title} · ${currentItem.addedBy} · ~${Math.floor(getExpectedPosition(playback))}s`
-    : 'Chưa có bài nào';
+    ? `${currentItem.title} · ${currentItem.addedBy} · ~${expected}s`
+    : `Video ${playback.videoId} · ~${expected}s`;
 
   els.statusBadge.textContent = playback.isPlaying ? 'Đang phát' : 'Tạm dừng';
-  els.roomSummary.textContent = `${users.length} người · ${playback.isPlaying ? 'Đang phát' : 'Đang tạm dừng'} · ~${Math.floor(getExpectedPosition(playback))}s`;
+  els.roomSummary.textContent =
+    `${usersCount} người · ${playback.isPlaying ? 'Đang phát' : 'Đang tạm dừng'} · ~${expected}s`;
+}
 
+function renderMembers(users = []) {
   els.memberList.innerHTML = users
-    .map(u => `<span class="member-chip">${escapeHtml(u.name)}</span>`)
+    .map((u) => `<span class="member-chip">${escapeHtml(u.name)}</span>`)
     .join('');
+}
 
-  els.chatList.innerHTML = (state.chat || [])
-    .map(msg => `
+function renderChat(chat = []) {
+  els.chatList.innerHTML = chat
+    .map((msg) => `
       <div class="chat-item">
         <div class="chat-head">
           <strong>${escapeHtml(msg.user)}</strong>
@@ -100,9 +118,44 @@ function renderState(state) {
     `)
     .join('');
 
+  els.chatList.scrollTop = els.chatList.scrollHeight;
+}
+
+function bindQueueActions() {
+  els.queueList.querySelectorAll('[data-select-index]').forEach((node) => {
+    node.onclick = () => {
+      socket.emit('track:select', { index: Number(node.dataset.selectIndex) });
+    };
+  });
+
+  els.queueList.querySelectorAll('[data-move-up]').forEach((node) => {
+    node.onclick = (e) => {
+      e.stopPropagation();
+      const index = Number(node.dataset.moveUp);
+      socket.emit('queue:move', { fromIndex: index, toIndex: index - 1 });
+    };
+  });
+
+  els.queueList.querySelectorAll('[data-move-down]').forEach((node) => {
+    node.onclick = (e) => {
+      e.stopPropagation();
+      const index = Number(node.dataset.moveDown);
+      socket.emit('queue:move', { fromIndex: index, toIndex: index + 1 });
+    };
+  });
+
+  els.queueList.querySelectorAll('[data-remove]').forEach((node) => {
+    node.onclick = (e) => {
+      e.stopPropagation();
+      socket.emit('queue:remove', { index: Number(node.dataset.remove) });
+    };
+  });
+}
+
+function renderQueue(queue = [], currentIndex = -1) {
   els.queueList.innerHTML = queue
     .map((item, index) => `
-      <div class="queue-item ${index === state.currentIndex ? 'active' : ''}">
+      <div class="queue-item ${index === currentIndex ? 'active' : ''}">
         <div class="queue-main" data-select-index="${index}">
           <div class="queue-title">${index + 1}. ${escapeHtml(item.title)}</div>
           <div class="queue-meta">${escapeHtml(item.videoId)} · thêm bởi ${escapeHtml(item.addedBy)}</div>
@@ -116,48 +169,148 @@ function renderState(state) {
     `)
     .join('');
 
-  els.queueList.querySelectorAll('[data-select-index]').forEach(btn => {
-    btn.onclick = () => socket.emit('track:select', { index: Number(btn.dataset.selectIndex) });
-  });
+  bindQueueActions();
+}
 
-  els.queueList.querySelectorAll('[data-move-up]').forEach(btn => {
-    btn.onclick = (e) => {
-      e.stopPropagation();
-      const i = Number(btn.dataset.moveUp);
-      socket.emit('queue:move', { fromIndex: i, toIndex: i - 1 });
-    };
-  });
+function showReaction(emoji) {
+  const node = document.createElement('div');
+  node.className = 'reaction-float';
+  node.textContent = emoji;
+  node.style.left = `${10 + Math.random() * 75}%`;
+  els.reactions.appendChild(node);
+  setTimeout(() => node.remove(), 1600);
+}
 
-  els.queueList.querySelectorAll('[data-move-down]').forEach(btn => {
-    btn.onclick = (e) => {
-      e.stopPropagation();
-      const i = Number(btn.dataset.moveDown);
-      socket.emit('queue:move', { fromIndex: i, toIndex: i + 1 });
-    };
-  });
+function appendChatMessage(msg) {
+  if (!latestState) return;
+  latestState.chat = [...(latestState.chat || []), msg].slice(-100);
+  renderChat(latestState.chat);
+}
 
-  els.queueList.querySelectorAll('[data-remove]').forEach(btn => {
-    btn.onclick = (e) => {
-      e.stopPropagation();
-      socket.emit('queue:remove', { index: Number(btn.dataset.remove) });
-    };
-  });
+function loadRoomVideo(playback, forcePlay = false) {
+  if (!playerReady || !playback?.videoId) return;
+
+  const expected = getExpectedPosition(playback);
+  const currentVideoId = getCurrentVideoId();
+
+  syncingFromServer = true;
+  setSuppress(1800);
+
+  if (currentVideoId !== playback.videoId) {
+    player.loadVideoById({
+      videoId: playback.videoId,
+      startSeconds: expected
+    });
+  } else {
+    player.seekTo(expected, true);
+  }
+
+  const shouldPlay = forcePlay || (playback.isPlaying && localUserUnlocked);
+
+  setTimeout(() => {
+    try {
+      if (shouldPlay) {
+        player.playVideo();
+      } else {
+        player.pauseVideo();
+      }
+    } catch (_) {
+      // ignore
+    } finally {
+      syncingFromServer = false;
+    }
+  }, 300);
+}
+
+function tryPlayCurrentSynced() {
+  if (!playerReady) {
+    toast('Player chưa sẵn sàng, thử lại sau 1 giây');
+    return;
+  }
+
+  if (!latestState?.playback?.videoId) {
+    toast('Phòng chưa có video');
+    return;
+  }
+
+  localUserUnlocked = true;
+
+  const playback = latestState.playback;
+  const expected = getExpectedPosition(playback);
+  const currentVideoId = getCurrentVideoId();
+
+  syncingFromServer = true;
+  setSuppress(1800);
+
+  if (currentVideoId !== playback.videoId) {
+    player.loadVideoById({
+      videoId: playback.videoId,
+      startSeconds: expected
+    });
+
+    setTimeout(() => {
+      try {
+        player.playVideo();
+      } catch (_) {
+        // ignore
+      } finally {
+        syncingFromServer = false;
+      }
+    }, 300);
+  } else {
+    try {
+      player.seekTo(expected, true);
+      player.playVideo();
+    } catch (_) {
+      // ignore
+    } finally {
+      setTimeout(() => {
+        syncingFromServer = false;
+      }, 300);
+    }
+  }
+
+  socket.emit('playback:play', { position: expected });
+}
+
+function pauseCurrentSynced() {
+  if (!playerReady || !latestState?.playback?.videoId) return;
+
+  const position = getCurrentTimeSafe();
+
+  syncingFromServer = true;
+  setSuppress(1000);
+
+  try {
+    player.pauseVideo();
+  } catch (_) {
+    // ignore
+  }
+
+  setTimeout(() => {
+    syncingFromServer = false;
+  }, 250);
+
+  socket.emit('playback:pause', { position });
+}
+
+function renderState(state) {
+  latestState = state;
+
+  const playback = state.playback || {};
+  const queue = state.queue || [];
+  const users = state.users || [];
+  const currentItem = queue[state.currentIndex];
+
+  renderQueue(queue, state.currentIndex);
+  renderMembers(users);
+  renderChat(state.chat || []);
+  updateHeader(playback, currentItem, users.length);
 
   if (playerReady && playback.videoId) {
-    const expected = getExpectedPosition(playback);
     const currentVideoId = getCurrentVideoId();
-
     if (currentVideoId !== playback.videoId) {
-      player.loadVideoById({
-        videoId: playback.videoId,
-        startSeconds: expected
-      });
-
-      setTimeout(() => {
-        try {
-          player.pauseVideo();
-        } catch {}
-      }, 300);
+      loadRoomVideo(playback, false);
     }
   }
 }
@@ -171,168 +324,331 @@ window.onYouTubeIframeAPIReady = function () {
       autoplay: 0,
       controls: 1,
       rel: 0,
+      modestbranding: 1,
       playsinline: 1
     },
     events: {
       onReady: () => {
         playerReady = true;
+        els.roomSummary.textContent = 'Player sẵn sàng';
+
         if (latestState?.playback?.videoId) {
-          const expected = getExpectedPosition(latestState.playback);
-          player.loadVideoById({
-            videoId: latestState.playback.videoId,
-            startSeconds: expected
-          });
-          setTimeout(() => {
-            try {
-              player.pauseVideo();
-            } catch {}
-          }, 300);
+          loadRoomVideo(latestState.playback, false);
         }
       },
-      onError: (e) => {
-        console.error('YouTube error', e.data);
+
+      onStateChange: (event) => {
+        if (isSuppressed()) return;
+        if (!latestState?.playback?.videoId) return;
+
+        const state = event.data;
+        const now = getCurrentTimeSafe();
+
+        // Tự động nhảy và phát bài tiếp theo khi bài hiện tại kết thúc
+        if (state === YT.PlayerState.ENDED) {
+          socket.emit('track:next');
+          return;
+        }
+
+        if (syncingFromServer) return;
+
+        if (state === YT.PlayerState.PLAYING) {
+          if (!latestState.playback.isPlaying && localUserUnlocked) {
+            socket.emit('playback:play', { position: now });
+          }
+          return;
+        }
+
+        if (state === YT.PlayerState.PAUSED) {
+          if (latestState.playback.isPlaying && localUserUnlocked) {
+            socket.emit('playback:pause', { position: now });
+          }
+        }
+      },
+
+      onError: (event) => {
+        console.error('YouTube error', event.data);
         toast('Video này có thể không phát được ở chế độ nhúng.');
       }
     }
   });
 };
 
+socket.on('connect', () => {
+  console.log('[socket] connected', socket.id);
+});
+
+socket.on('disconnect', () => {
+  els.roomSummary.textContent = 'Mất kết nối';
+});
+
+socket.on('toast', (payload) => {
+  toast(payload?.message || 'Có lỗi xảy ra');
+});
+
 socket.on('room:state', (state) => {
   renderState(state);
 });
 
+socket.on('chat:new', (msg) => {
+  appendChatMessage(msg);
+});
+
+socket.on('reaction:new', (payload) => {
+  showReaction(payload?.emoji || '❤️');
+});
+
 socket.on('playback:update', (payload) => {
-  if (!playerReady || !payload?.videoId) return;
+  if (!playerReady) return;
+  if (!payload) return;
 
-  const currentVideoId = getCurrentVideoId();
-  const position = Number(payload.position || 0);
+  const position = Math.max(0, Number(payload.position || 0));
 
-  if (currentVideoId !== payload.videoId) {
+  if (payload.action === 'load') {
+    if (!payload.videoId) return;
+
+    syncingFromServer = true;
+    setSuppress(1800);
+
     player.loadVideoById({
       videoId: payload.videoId,
       startSeconds: position
     });
-  } else {
-    player.seekTo(position, true);
+
+    setTimeout(() => {
+      try {
+        if (localUserUnlocked) {
+          player.playVideo();
+        } else {
+          player.pauseVideo();
+        }
+      } catch (_) {
+        // ignore
+      } finally {
+        syncingFromServer = false;
+      }
+    }, 350);
+
+    return;
+  }
+
+  if (!payload.videoId) return;
+
+  if (payload.action === 'play') {
+    syncingFromServer = true;
+    setSuppress(1500);
+
+    const currentVideoId = getCurrentVideoId();
+
+    if (currentVideoId !== payload.videoId) {
+      player.loadVideoById({
+        videoId: payload.videoId,
+        startSeconds: position
+      });
+
+      setTimeout(() => {
+        try {
+          if (localUserUnlocked) {
+            player.playVideo();
+          } else {
+            player.pauseVideo();
+          }
+        } catch (_) {
+          // ignore
+        } finally {
+          syncingFromServer = false;
+        }
+      }, 300);
+    } else {
+      try {
+        player.seekTo(position, true);
+        if (localUserUnlocked) {
+          player.playVideo();
+        }
+      } catch (_) {
+        // ignore
+      } finally {
+        setTimeout(() => {
+          syncingFromServer = false;
+        }, 250);
+      }
+    }
+
+    return;
   }
 
   if (payload.action === 'pause') {
+    syncingFromServer = true;
+    setSuppress(1200);
+
+    const currentVideoId = getCurrentVideoId();
+
+    if (currentVideoId !== payload.videoId) {
+      player.loadVideoById({
+        videoId: payload.videoId,
+        startSeconds: position
+      });
+    } else {
+      try {
+        player.seekTo(position, true);
+      } catch (_) {
+        // ignore
+      }
+    }
+
     setTimeout(() => {
       try {
         player.pauseVideo();
-      } catch {}
-    }, 150);
+      } catch (_) {
+        // ignore
+      } finally {
+        syncingFromServer = false;
+      }
+    }, 200);
+
+    return;
   }
-});
 
-socket.on('chat:new', () => {});
-socket.on('reaction:new', (payload) => {
-  const node = document.createElement('div');
-  node.className = 'reaction-float';
-  node.textContent = payload?.emoji || '❤️';
-  node.style.left = `${10 + Math.random() * 75}%`;
-  els.reactions.appendChild(node);
-  setTimeout(() => node.remove(), 1600);
-});
+  if (payload.action === 'seek') {
+    syncingFromServer = true;
+    setSuppress(1000);
 
-socket.on('toast', (payload) => {
-  toast(payload?.message || 'Có lỗi');
+    const currentVideoId = getCurrentVideoId();
+
+    if (currentVideoId !== payload.videoId) {
+      player.loadVideoById({
+        videoId: payload.videoId,
+        startSeconds: position
+      });
+
+      setTimeout(() => {
+        try {
+          if (!latestState?.playback?.isPlaying || !localUserUnlocked) {
+            player.pauseVideo();
+          }
+        } catch (_) {
+          // ignore
+        } finally {
+          syncingFromServer = false;
+        }
+      }, 250);
+    } else {
+      try {
+        player.seekTo(position, true);
+      } catch (_) {
+        // ignore
+      } finally {
+        setTimeout(() => {
+          syncingFromServer = false;
+        }, 200);
+      }
+    }
+  }
 });
 
 els.joinBtn.onclick = () => {
   const roomId = (els.roomInput.value || 'main-room').trim() || 'main-room';
   const name = (els.nameInput.value || 'Khách').trim() || 'Khách';
+
   socket.emit('room:join', { roomId, name });
   joinedRoom = true;
+  els.roomSummary.textContent = 'Đã vào phòng, đang tải player...';
 };
 
 els.addBtn.onclick = () => {
-  if (!joinedRoom) return toast('Bạn phải vào phòng trước');
+  if (!joinedRoom) {
+    toast('Bạn phải vào phòng trước');
+    return;
+  }
+
   const url = (els.urlInput.value || '').trim();
   const title = (els.titleInput.value || '').trim();
-  if (!url) return toast('Bạn chưa nhập link YouTube');
+
+  if (!url) {
+    toast('Bạn chưa nhập link YouTube');
+    return;
+  }
+
   socket.emit('queue:add', { url, title });
   els.urlInput.value = '';
   els.titleInput.value = '';
 };
 
 els.sendBtn.onclick = () => {
-  if (!joinedRoom) return toast('Bạn phải vào phòng trước');
+  if (!joinedRoom) {
+    toast('Bạn phải vào phòng trước');
+    return;
+  }
+
   const text = (els.chatInput.value || '').trim();
   if (!text) return;
+
   socket.emit('chat:send', { text });
   els.chatInput.value = '';
 };
 
 els.chatInput.addEventListener('keydown', (e) => {
-  if (e.key === 'Enter') els.sendBtn.click();
+  if (e.key === 'Enter') {
+    els.sendBtn.click();
+  }
 });
 
 els.playBtn.onclick = () => {
-  if (!joinedRoom) return toast('Bạn phải vào phòng trước');
-  if (!playerReady) return toast('Player chưa sẵn sàng');
-  if (!latestState?.playback?.videoId) return toast('Chưa có video');
-
-  const expected = getExpectedPosition(latestState.playback);
-  const currentVideoId = getCurrentVideoId();
-
-  if (currentVideoId !== latestState.playback.videoId) {
-    player.loadVideoById({
-      videoId: latestState.playback.videoId,
-      startSeconds: expected
-    });
-
-    setTimeout(() => {
-      try {
-        player.playVideo();
-      } catch {}
-    }, 300);
-  } else {
-    player.seekTo(expected, true);
-    player.playVideo();
+  if (!joinedRoom) {
+    toast('Bạn phải vào phòng trước');
+    return;
   }
 
-  socket.emit('playback:play', { position: expected });
+  tryPlayCurrentSynced();
 };
 
 els.pauseBtn.onclick = () => {
-  if (!joinedRoom) return toast('Bạn phải vào phòng trước');
-  if (!playerReady) return;
+  if (!joinedRoom) {
+    toast('Bạn phải vào phòng trước');
+    return;
+  }
 
-  const position = getCurrentTimeSafe();
-  try {
-    player.pauseVideo();
-  } catch {}
-  socket.emit('playback:pause', { position });
+  pauseCurrentSynced();
 };
 
 els.nextBtn.onclick = () => {
-  if (!joinedRoom) return toast('Bạn phải vào phòng trước');
+  if (!joinedRoom) {
+    toast('Bạn phải vào phòng trước');
+    return;
+  }
+
   socket.emit('track:next');
 };
 
-document.querySelectorAll('[data-reaction]').forEach(btn => {
-  btn.onclick = () => {
-    if (!joinedRoom) return toast('Bạn phải vào phòng trước');
-    socket.emit('reaction:send', { emoji: btn.dataset.reaction });
+document.querySelectorAll('[data-reaction]').forEach((node) => {
+  node.onclick = () => {
+    if (!joinedRoom) {
+      toast('Bạn phải vào phòng trước');
+      return;
+    }
+
+    socket.emit('reaction:send', { emoji: node.dataset.reaction });
   };
 });
 
+// Resync nhẹ mỗi 3 giây để không bị lệch lâu
 setInterval(() => {
-  if (!latestState?.playback?.videoId || !playerReady) return;
+  if (!playerReady || !latestState?.playback?.videoId) return;
 
-  const expected = getExpectedPosition(latestState.playback);
+  const playback = latestState.playback;
+  const expected = getExpectedPosition(playback);
   const actual = getCurrentTimeSafe();
+  const drift = Math.abs(expected - actual);
 
-  if (latestState.playback.isPlaying && Math.abs(expected - actual) > 2) {
+  const currentItem = latestState.queue?.[latestState.currentIndex];
+  updateHeader(playback, currentItem, (latestState.users || []).length);
+
+  if (playback.isPlaying && localUserUnlocked && drift > 2) {
     try {
+      setSuppress(1000);
       player.seekTo(expected, true);
-    } catch {}
-  }
-
-  if (latestState) {
-    els.trackMeta.textContent = els.trackMeta.textContent.replace(/~\d+s$/, `~${Math.floor(expected)}s`);
-    els.roomSummary.textContent =
-      `${(latestState.users || []).length} người · ${latestState.playback.isPlaying ? 'Đang phát' : 'Đang tạm dừng'} · ~${Math.floor(expected)}s`;
+    } catch (_) {
+      // ignore
+    }
   }
 }, 3000);
