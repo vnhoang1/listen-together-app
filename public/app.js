@@ -211,6 +211,57 @@ function appendChatMessage(msg) {
   renderChat(latestState.chat);
 }
 
+function lockPlayerInteraction() {
+  const playerWrap = document.getElementById('playerWrap');
+  if (!playerWrap) return;
+
+  let blocker = document.getElementById('playerBlocker');
+  if (!blocker) {
+    blocker = document.createElement('div');
+    blocker.id = 'playerBlocker';
+    blocker.style.position = 'absolute';
+    blocker.style.inset = '0';
+    blocker.style.zIndex = '5';
+    blocker.style.background = 'transparent';
+    blocker.style.cursor = 'default';
+    blocker.style.pointerEvents = 'auto';
+    playerWrap.style.position = 'relative';
+    playerWrap.appendChild(blocker);
+  }
+}
+
+function tryResumeAfterLoad(shouldPlay = false, retries = 8) {
+  if (!playerReady || !player) return;
+
+  const run = (left) => {
+    try {
+      if (shouldPlay) {
+        player.playVideo();
+      } else {
+        player.pauseVideo();
+        return;
+      }
+
+      const state =
+        typeof player.getPlayerState === 'function'
+          ? player.getPlayerState()
+          : -1;
+
+      if (state === YT.PlayerState.PLAYING || state === YT.PlayerState.BUFFERING) {
+        return;
+      }
+    } catch (_) {
+      // ignore
+    }
+
+    if (left > 0) {
+      setTimeout(() => run(left - 1), 350);
+    }
+  };
+
+  run(retries);
+}
+
 function loadRoomVideo(playback, forcePlay = false) {
   if (!playerReady || !playback?.videoId) return;
 
@@ -218,7 +269,7 @@ function loadRoomVideo(playback, forcePlay = false) {
   const currentVideoId = getCurrentVideoId();
 
   syncingFromServer = true;
-  setSuppress(1800);
+  setSuppress(2200);
 
   try {
     if (currentVideoId !== playback.videoId) {
@@ -238,17 +289,12 @@ function loadRoomVideo(playback, forcePlay = false) {
   const shouldPlay = forcePlay || (playback.isPlaying && localUserUnlocked);
 
   setTimeout(() => {
-    try {
-      if (shouldPlay) {
-        player.playVideo();
-      } else {
-        player.pauseVideo();
-      }
-    } catch (_) {
-      // ignore
-    } finally {
+    tryResumeAfterLoad(shouldPlay, 8);
+  } finally {
+    setTimeout(() => {
       syncingFromServer = false;
-    }
+    }, 400);
+  }
   }, 300);
 }
 
@@ -285,14 +331,13 @@ function tryPlayCurrentSynced() {
     }
 
     setTimeout(() => {
-      try {
-        player.playVideo();
-      } catch (_) {
-        // ignore
-      } finally {
+      tryResumeAfterLoad(true, 8);
+    } finally {
+      setTimeout(() => {
         syncingFromServer = false;
-      }
-    }, 300);
+      }, 400);
+    }
+    }, 350);
   } else {
     try {
       player.seekTo(expected, true);
@@ -366,15 +411,19 @@ function createYoutubePlayer() {
     videoId: '',
     playerVars: {
       autoplay: 0,
-      controls: 1,
+      controls: 0,
+      disablekb: 1,
+      fs: 0,
       rel: 0,
       modestbranding: 1,
-      playsinline: 1
+      playsinline: 1,
+      iv_load_policy: 3
     },
     events: {
       onReady: () => {
         playerReady = true;
         els.roomSummary.textContent = 'Player sẵn sàng';
+        lockPlayerInteraction();
 
         if (latestState?.playback?.videoId) {
           loadRoomVideo(latestState.playback, false);
@@ -394,8 +443,6 @@ function createYoutubePlayer() {
 
         if (syncingFromServer) return;
 
-        // Không tự đồng bộ pause/play từ state change nữa.
-        // Chỉ dùng nút Play / Tạm dừng để tránh lỗi minimize/background.
         if (state === YT.PlayerState.PLAYING) {
           return;
         }
@@ -432,12 +479,10 @@ window.onYouTubeIframeAPIReady = function () {
   createYoutubePlayer();
 };
 
-// Phòng trường hợp YouTube API đã load xong trước khi app.js chạy
 if (window.YT && window.YT.Player) {
   createYoutubePlayer();
 }
 
-// Khi minimize / background, đừng để app hiểu nhầm là pause thật
 document.addEventListener('visibilitychange', () => {
   if (document.hidden) {
     hiddenPauseGuardUntil = Date.now() + 3000;
@@ -479,7 +524,7 @@ socket.on('playback:update', (payload) => {
     if (!payload.videoId) return;
 
     syncingFromServer = true;
-    setSuppress(1800);
+    setSuppress(2200);
     lockEmitNextTrack();
 
     try {
@@ -494,18 +539,13 @@ socket.on('playback:update', (payload) => {
     }
 
     setTimeout(() => {
-      try {
-        if (localUserUnlocked) {
-          player.playVideo();
-        } else {
-          player.pauseVideo();
-        }
-      } catch (_) {
-        // ignore
-      } finally {
+      tryResumeAfterLoad(localUserUnlocked, 10);
+    } finally {
+      setTimeout(() => {
         syncingFromServer = false;
-      }
-    }, 350);
+      }, 500);
+    }
+    }, 450);
 
     return;
   }
@@ -531,18 +571,13 @@ socket.on('playback:update', (payload) => {
       }
 
       setTimeout(() => {
-        try {
-          if (localUserUnlocked) {
-            player.playVideo();
-          } else {
-            player.pauseVideo();
-          }
-        } catch (_) {
-          // ignore
-        } finally {
+        tryResumeAfterLoad(localUserUnlocked, 8);
+      } finally {
+        setTimeout(() => {
           syncingFromServer = false;
-        }
-      }, 300);
+        }, 400);
+      }
+      }, 350);
     } else {
       try {
         player.seekTo(position, true);
@@ -732,7 +767,6 @@ document.querySelectorAll('[data-reaction]').forEach((node) => {
   };
 });
 
-// Resync nhẹ mỗi 3 giây để không bị lệch lâu
 setInterval(() => {
   if (!playerReady || !latestState?.playback?.videoId) return;
   if (document.hidden) return;
