@@ -8,7 +8,7 @@ const server = http.createServer(app);
 const io = new Server(server);
 
 const PORT = process.env.PORT || 3000;
-const YOUTUBE_API_KEY = "AIzaSyBJr_3237FdzC69XbvkxQSAMNdCRlG7pcU";
+const YOUTUBE_API_KEY = process.env.YOUTUBE_API_KEY;
 
 function extractVideoId(input) {
   if (!input) return '';
@@ -27,6 +27,7 @@ function extractVideoId(input) {
     const embed = url.pathname.match(/\/embed\/([a-zA-Z0-9_-]{11})/);
     if (embed) return embed[1];
   } catch (_) {}
+
   return '';
 }
 
@@ -215,6 +216,11 @@ app.get('/api/youtube/search', async (req, res) => {
     return res.json({ items: [] });
   }
 
+  if (!YOUTUBE_API_KEY) {
+    console.error('Missing YOUTUBE_API_KEY');
+    return res.status(500).json({ items: [], error: 'Missing YOUTUBE_API_KEY' });
+  }
+
   try {
     const url = new URL('https://www.googleapis.com/youtube/v3/search');
     url.searchParams.set('part', 'snippet');
@@ -293,7 +299,8 @@ io.on('connection', (socket) => {
       return;
     }
 
-    const resolvedTitle = String(title || '').trim() || await fetchVideoTitle(videoId);
+    const resolvedTitle =
+      String(title || '').trim() || (await fetchVideoTitle(videoId));
 
     const item = {
       id: Math.random().toString(36).slice(2, 10),
