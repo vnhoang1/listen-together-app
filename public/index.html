@@ -14,7 +14,12 @@
         <div>
           <div class="pill">Phòng nghe chung</div>
           <h1>Nghe YouTube cùng nhau</h1>
-          <p>Tôi đã block các chức năng trong player thu nhỏ. Vì nghe chung mà 1 người lỡ tay tua video chẳng hạn, sẽ ảnh hưởng tới trình phát nhạc của toàn bộ thành viên trong room dẫn tới lỗi trình phát nhạc và bị ngắt quãng. Xin lỗi vì sự bất tiện này. Nếu bạn có đóng góp nào cho công cụ này, hãy ib ngay cho @vnhoang69 trên Telegram để đóng góp ý kiến</p>
+          <p>
+            Tôi đã block các chức năng trong player thu nhỏ. Vì nghe chung mà 1 người lỡ tay tua video
+            chẳng hạn, sẽ ảnh hưởng tới trình phát nhạc của toàn bộ thành viên trong room dẫn tới lỗi
+            trình phát nhạc và bị ngắt quãng. Xin lỗi vì sự bất tiện này. Nếu bạn có đóng góp nào cho
+            công cụ này, hãy ib ngay cho @vnhoang69 trên Telegram để đóng góp ý kiến
+          </p>
         </div>
         <div class="hero-card">
           <label>Tên hiển thị</label>
@@ -69,12 +74,18 @@
           </div>
 
           <label>Link YouTube</label>
-          <input id="urlInput" placeholder="https://www.youtube.com/watch?v=..." />
-          <label>Tiêu đề tùy chọn</label>
           <div class="row">
-            <input id="titleInput" placeholder="Tên bài hát" />
+            <input id="urlInput" placeholder="https://www.youtube.com/watch?v=..." />
             <button id="addBtn">Thêm bài</button>
           </div>
+
+          <label>Tìm bài trên YouTube</label>
+          <div class="search-box">
+            <input id="searchInput" placeholder="Tìm tên bài hát, ca sĩ..." autocomplete="off" />
+            <button id="searchBtn" type="button">Tìm</button>
+          </div>
+
+          <div id="searchResults" class="search-results"></div>
 
           <div id="queueList" class="queue-list"></div>
         </section>
