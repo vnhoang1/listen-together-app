@@ -14,6 +14,7 @@ let syncingFromServer = false;
 let hiddenPauseGuardUntil = 0;
 let nextTrackEmitLockedUntil = 0;
 let lastLoadedVideoId = '';
+let recentTrackSwitchUntil = 0;
 
 const els = {
   nameInput: document.getElementById('nameInput'),
@@ -278,6 +279,7 @@ function loadRoomVideo(playback, forcePlay = false) {
         startSeconds: expected
       });
       lastLoadedVideoId = playback.videoId;
+      recentTrackSwitchUntil = Date.now() + 6000;
     } else {
       player.seekTo(expected, true);
     }
@@ -326,6 +328,7 @@ function tryPlayCurrentSynced() {
         startSeconds: expected
       });
       lastLoadedVideoId = playback.videoId;
+      recentTrackSwitchUntil = Date.now() + 6000;
     } catch (_) {
       syncingFromServer = false;
       return;
@@ -535,6 +538,7 @@ socket.on('playback:update', (payload) => {
         startSeconds: position
       });
       lastLoadedVideoId = payload.videoId;
+      recentTrackSwitchUntil = Date.now() + 6000;
     } catch (_) {
       syncingFromServer = false;
       return;
@@ -568,6 +572,7 @@ socket.on('playback:update', (payload) => {
           startSeconds: position
         });
         lastLoadedVideoId = payload.videoId;
+      recentTrackSwitchUntil = Date.now() + 6000;
       } catch (_) {
         syncingFromServer = false;
         return;
@@ -613,6 +618,7 @@ socket.on('playback:update', (payload) => {
           startSeconds: position
         });
         lastLoadedVideoId = payload.videoId;
+      recentTrackSwitchUntil = Date.now() + 6000;
       } catch (_) {
         syncingFromServer = false;
         return;
@@ -651,6 +657,7 @@ socket.on('playback:update', (payload) => {
           startSeconds: position
         });
         lastLoadedVideoId = payload.videoId;
+      recentTrackSwitchUntil = Date.now() + 6000;
       } catch (_) {
         syncingFromServer = false;
         return;
@@ -774,6 +781,7 @@ document.querySelectorAll('[data-reaction]').forEach((node) => {
 setInterval(() => {
   if (!playerReady || !latestState?.playback?.videoId) return;
   if (document.hidden) return;
+  if (Date.now() < recentTrackSwitchUntil) return;
 
   const playback = latestState.playback;
   const expected = getExpectedPosition(playback);
@@ -783,7 +791,7 @@ setInterval(() => {
   const currentItem = latestState.queue?.[latestState.currentIndex];
   updateHeader(playback, currentItem, (latestState.users || []).length);
 
-  if (playback.isPlaying && localUserUnlocked && drift > 2) {
+  if (playback.isPlaying && localUserUnlocked && drift > 4) {
     try {
       setSuppress(1000);
       player.seekTo(expected, true);
