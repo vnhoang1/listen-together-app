@@ -211,23 +211,45 @@ function appendChatMessage(msg) {
   renderChat(latestState.chat);
 }
 
-function lockPlayerInteraction() {
-  const playerWrap = document.getElementById('playerWrap');
-  if (!playerWrap) return;
+function shieldPlayerArea() {
+  const wrap = document.getElementById('playerWrap');
+  const playerEl = document.getElementById('player');
+  if (!wrap || !playerEl) return;
 
-  let blocker = document.getElementById('playerBlocker');
-  if (!blocker) {
-    blocker = document.createElement('div');
-    blocker.id = 'playerBlocker';
-    blocker.style.position = 'absolute';
-    blocker.style.inset = '0';
-    blocker.style.zIndex = '5';
-    blocker.style.background = 'transparent';
-    blocker.style.cursor = 'default';
-    blocker.style.pointerEvents = 'auto';
-    playerWrap.style.position = 'relative';
-    playerWrap.appendChild(blocker);
+  wrap.style.position = 'relative';
+  wrap.style.overflow = 'hidden';
+
+  let shield = document.getElementById('playerShield');
+  if (!shield) {
+    shield = document.createElement('div');
+    shield.id = 'playerShield';
+    wrap.appendChild(shield);
   }
+
+  shield.style.position = 'absolute';
+  shield.style.inset = '0';
+  shield.style.zIndex = '20';
+  shield.style.background = 'transparent';
+  shield.style.pointerEvents = 'auto';
+  shield.style.cursor = 'default';
+  shield.style.userSelect = 'none';
+  shield.oncontextmenu = (e) => e.preventDefault();
+
+  const iframe = playerEl.querySelector('iframe');
+  if (iframe) {
+    iframe.style.pointerEvents = 'none';
+    iframe.style.position = 'absolute';
+    iframe.style.inset = '0';
+    iframe.style.width = '100%';
+    iframe.style.height = '100%';
+    iframe.style.zIndex = '1';
+  }
+}
+
+function refreshPlayerShield() {
+  setTimeout(shieldPlayerArea, 50);
+  setTimeout(shieldPlayerArea, 300);
+  setTimeout(shieldPlayerArea, 800);
 }
 
 function tryResumeAfterLoad(shouldPlay = false, retries = 8) {
@@ -281,6 +303,8 @@ function loadRoomVideo(playback, forcePlay = false) {
     } else {
       player.seekTo(expected, true);
     }
+
+    refreshPlayerShield();
   } catch (_) {
     syncingFromServer = false;
     return;
@@ -325,6 +349,7 @@ function tryPlayCurrentSynced() {
         startSeconds: expected
       });
       lastLoadedVideoId = playback.videoId;
+      refreshPlayerShield();
     } catch (_) {
       syncingFromServer = false;
       return;
@@ -423,7 +448,7 @@ function createYoutubePlayer() {
       onReady: () => {
         playerReady = true;
         els.roomSummary.textContent = 'Player sẵn sàng';
-        lockPlayerInteraction();
+        shieldPlayerArea();
 
         if (latestState?.playback?.videoId) {
           loadRoomVideo(latestState.playback, false);
@@ -443,18 +468,13 @@ function createYoutubePlayer() {
 
         if (syncingFromServer) return;
 
-        if (state === YT.PlayerState.PLAYING) {
-          return;
-        }
+        if (state === YT.PlayerState.PLAYING) return;
 
         if (state === YT.PlayerState.PAUSED) {
           const hiddenRecently =
             document.hidden || Date.now() < hiddenPauseGuardUntil;
 
-          if (hiddenRecently) {
-            return;
-          }
-
+          if (hiddenRecently) return;
           return;
         }
       },
@@ -533,6 +553,7 @@ socket.on('playback:update', (payload) => {
         startSeconds: position
       });
       lastLoadedVideoId = payload.videoId;
+      refreshPlayerShield();
     } catch (_) {
       syncingFromServer = false;
       return;
@@ -565,6 +586,7 @@ socket.on('playback:update', (payload) => {
           startSeconds: position
         });
         lastLoadedVideoId = payload.videoId;
+        refreshPlayerShield();
       } catch (_) {
         syncingFromServer = false;
         return;
@@ -609,6 +631,7 @@ socket.on('playback:update', (payload) => {
           startSeconds: position
         });
         lastLoadedVideoId = payload.videoId;
+        refreshPlayerShield();
       } catch (_) {
         syncingFromServer = false;
         return;
@@ -647,6 +670,7 @@ socket.on('playback:update', (payload) => {
           startSeconds: position
         });
         lastLoadedVideoId = payload.videoId;
+        refreshPlayerShield();
       } catch (_) {
         syncingFromServer = false;
         return;
