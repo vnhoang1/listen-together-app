@@ -38,7 +38,7 @@ async function fetchVideoTitle(videoId) {
   for (const url of urls) {
     try {
       const res = await fetch(url, {
-        headers: { 'User-Agent': 'listen-together-local-app' }
+        headers: { 'User-Agent': 'listen-together-app' }
       });
       if (!res.ok) continue;
       const data = await res.json();
@@ -47,6 +47,7 @@ async function fetchVideoTitle(videoId) {
       }
     } catch (_) {}
   }
+
   return `YouTube ${videoId}`;
 }
 
@@ -76,12 +77,14 @@ const rooms = new Map();
 function getRoom(roomId) {
   if (!rooms.has(roomId)) {
     const room = createRoom(roomId);
+
     room.queue.push({
       id: Math.random().toString(36).slice(2, 10),
       videoId: 'jfKfPfyJRdk',
       title: 'Lofi hip hop radio',
       addedBy: 'System'
     });
+
     room.currentIndex = 0;
     room.playback = {
       videoId: 'jfKfPfyJRdk',
@@ -90,16 +93,20 @@ function getRoom(roomId) {
       pausedAt: 0,
       updatedAt: nowSec()
     };
+
     rooms.set(roomId, room);
   }
+
   return rooms.get(roomId);
 }
 
 function getPlaybackPosition(playback) {
   if (!playback.videoId) return 0;
+
   if (playback.isPlaying && playback.startedAt != null) {
     return Math.max(0, nowSec() - playback.startedAt);
   }
+
   return Math.max(0, playback.pausedAt || 0);
 }
 
@@ -124,10 +131,13 @@ function broadcastRoom(roomId) {
 
 function moveToTrack(room, index, autoplay = true) {
   if (index < 0 || index >= room.queue.length) return;
+
   room.currentIndex = index;
   const item = room.queue[index];
+
   room.playback.videoId = item.videoId;
   room.playback.updatedAt = nowSec();
+
   if (autoplay) {
     room.playback.isPlaying = true;
     room.playback.startedAt = nowSec();
@@ -166,6 +176,7 @@ function swapQueue(room, fromIndex, toIndex) {
 
 function removeFromQueue(room, index) {
   if (index < 0 || index >= room.queue.length) return null;
+
   const [removed] = room.queue.splice(index, 1);
 
   if (room.queue.length === 0) {
@@ -192,23 +203,32 @@ function removeFromQueue(room, index) {
 
 app.use(express.static(path.join(__dirname, 'public')));
 
+app.get('/', (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'index.html'));
+});
+
 io.on('connection', (socket) => {
   socket.on('room:join', ({ roomId, name }) => {
     const safeRoomId = String(roomId || 'main-room').trim() || 'main-room';
     const safeName = String(name || 'Khách').trim() || 'Khách';
+
     socket.data.roomId = safeRoomId;
     socket.data.name = safeName;
+
     socket.join(safeRoomId);
 
     const room = getRoom(safeRoomId);
     room.users[socket.id] = { id: socket.id, name: safeName };
+
     socket.emit('room:state', syncState(room));
-    socket.to(safeRoomId).emit('chat:new', {
+
+    room.chat.push({
       id: Math.random().toString(36).slice(2, 10),
       user: 'System',
       text: `${safeName} đã vào phòng`,
       time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
     });
+
     broadcastRoom(safeRoomId);
   });
 
@@ -218,14 +238,17 @@ io.on('connection', (socket) => {
       socket.emit('toast', { type: 'error', message: 'Bạn phải vào phòng trước' });
       return;
     }
+
     const room = getRoom(roomId);
     const videoId = extractVideoId(url);
+
     if (!videoId) {
       socket.emit('toast', { type: 'error', message: 'Link YouTube không hợp lệ' });
       return;
     }
 
     const resolvedTitle = String(title || '').trim() || await fetchVideoTitle(videoId);
+
     const item = {
       id: Math.random().toString(36).slice(2, 10),
       videoId,
@@ -234,125 +257,160 @@ io.on('connection', (socket) => {
     };
 
     room.queue.push(item);
+
     if (room.currentIndex === -1) {
       moveToTrack(room, 0, false);
     }
+
     room.chat.push({
       id: Math.random().toString(36).slice(2, 10),
       user: 'System',
       text: `${socket.data.name} đã thêm: ${resolvedTitle}`,
       time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
     });
+
     broadcastRoom(roomId);
   });
 
   socket.on('queue:move', ({ fromIndex, toIndex }) => {
     const roomId = socket.data.roomId;
     if (!roomId) return;
+
     const room = getRoom(roomId);
     const ok = swapQueue(room, Number(fromIndex), Number(toIndex));
     if (!ok) return;
+
     broadcastRoom(roomId);
   });
 
   socket.on('queue:remove', ({ index }) => {
     const roomId = socket.data.roomId;
     if (!roomId) return;
+
     const room = getRoom(roomId);
     const removed = removeFromQueue(room, Number(index));
     if (!removed) return;
+
     room.chat.push({
       id: Math.random().toString(36).slice(2, 10),
       user: 'System',
       text: `${socket.data.name} đã xóa: ${removed.title}`,
       time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
     });
+
     io.to(roomId).emit('playback:update', {
       action: room.playback.videoId ? 'load' : 'pause',
       videoId: room.playback.videoId,
       position: getPlaybackPosition(room.playback),
       updatedAt: room.playback.updatedAt
     });
+
     broadcastRoom(roomId);
   });
 
   socket.on('track:select', ({ index }) => {
     const roomId = socket.data.roomId;
     if (!roomId) return;
+
     const room = getRoom(roomId);
     moveToTrack(room, Number(index), true);
+
+    io.to(roomId).emit('playback:update', {
+      action: 'load',
+      videoId: room.playback.videoId,
+      position: 0,
+      updatedAt: room.playback.updatedAt
+    });
+
     broadcastRoom(roomId);
   });
 
   socket.on('playback:play', ({ position }) => {
     const roomId = socket.data.roomId;
     if (!roomId) return;
+
     const room = getRoom(roomId);
-    const pos = Number(position || 0);
+    const pos = Math.max(0, Number(position || 0));
+
     room.playback.isPlaying = true;
-    room.playback.startedAt = nowSec() - Math.max(0, pos);
+    room.playback.startedAt = nowSec() - pos;
     room.playback.pausedAt = 0;
     room.playback.updatedAt = nowSec();
+
     io.to(roomId).emit('playback:update', {
       action: 'play',
       videoId: room.playback.videoId,
       position: pos,
       updatedAt: room.playback.updatedAt
     });
+
     broadcastRoom(roomId);
   });
 
   socket.on('playback:pause', ({ position }) => {
     const roomId = socket.data.roomId;
     if (!roomId) return;
+
     const room = getRoom(roomId);
-    const pos = Number(position || 0);
+    const pos = Math.max(0, Number(position || 0));
+
     room.playback.isPlaying = false;
-    room.playback.pausedAt = Math.max(0, pos);
+    room.playback.pausedAt = pos;
     room.playback.startedAt = null;
     room.playback.updatedAt = nowSec();
+
     io.to(roomId).emit('playback:update', {
       action: 'pause',
       videoId: room.playback.videoId,
-      position: room.playback.pausedAt,
+      position: pos,
       updatedAt: room.playback.updatedAt
     });
+
     broadcastRoom(roomId);
   });
 
   socket.on('playback:seek', ({ position }) => {
     const roomId = socket.data.roomId;
     if (!roomId) return;
+
     const room = getRoom(roomId);
     const pos = Math.max(0, Number(position || 0));
+
     if (room.playback.isPlaying) {
       room.playback.startedAt = nowSec() - pos;
       room.playback.pausedAt = 0;
     } else {
       room.playback.pausedAt = pos;
     }
+
     room.playback.updatedAt = nowSec();
+
     io.to(roomId).emit('playback:update', {
       action: 'seek',
       videoId: room.playback.videoId,
       position: pos,
       updatedAt: room.playback.updatedAt
     });
+
     broadcastRoom(roomId);
   });
 
   socket.on('track:next', () => {
     const roomId = socket.data.roomId;
     if (!roomId) return;
+
     const room = getRoom(roomId);
+
     if (room.currentIndex < room.queue.length - 1) {
       moveToTrack(room, room.currentIndex + 1, true);
+
       io.to(roomId).emit('playback:update', {
         action: 'load',
         videoId: room.playback.videoId,
         position: 0,
         updatedAt: room.playback.updatedAt
       });
+
       broadcastRoom(roomId);
     }
   });
@@ -360,15 +418,18 @@ io.on('connection', (socket) => {
   socket.on('chat:send', ({ text }) => {
     const roomId = socket.data.roomId;
     if (!roomId) return;
+
     const room = getRoom(roomId);
     const safeText = String(text || '').trim();
     if (!safeText) return;
+
     const msg = {
       id: Math.random().toString(36).slice(2, 10),
       user: socket.data.name || 'Khách',
       text: safeText,
       time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
     };
+
     room.chat.push(msg);
     io.to(roomId).emit('chat:new', msg);
     broadcastRoom(roomId);
@@ -377,6 +438,7 @@ io.on('connection', (socket) => {
   socket.on('reaction:send', ({ emoji }) => {
     const roomId = socket.data.roomId;
     if (!roomId) return;
+
     io.to(roomId).emit('reaction:new', {
       id: Math.random().toString(36).slice(2, 10),
       emoji: String(emoji || '❤️').slice(0, 4)
@@ -386,15 +448,19 @@ io.on('connection', (socket) => {
   socket.on('disconnect', () => {
     const roomId = socket.data.roomId;
     if (!roomId) return;
+
     const room = getRoom(roomId);
     const name = socket.data.name || 'Khách';
+
     delete room.users[socket.id];
+
     room.chat.push({
       id: Math.random().toString(36).slice(2, 10),
       user: 'System',
       text: `${name} đã rời phòng`,
       time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
     });
+
     broadcastRoom(roomId);
   });
 });
