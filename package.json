@@ -1,0 +1,16 @@
+{
+  "name": "listen-together-app",
+  "version": "1.0.0",
+  "description": "Listen together with YouTube using Socket.IO",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "express": "^4.19.2",
+    "socket.io": "^4.8.1"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

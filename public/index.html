@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="vi">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Nghe YouTube cùng nhau</title>
+    <link rel="stylesheet" href="/styles.css" />
+    <script src="https://www.youtube.com/iframe_api"></script>
+    <script src="/socket.io/socket.io.js"></script>
+  </head>
+  <body>
+    <div class="page">
+      <header class="hero">
+        <div>
+          <div class="pill">Phòng nghe chung</div>
+          <h1>Nghe YouTube cùng nhau</h1>
+          <p>Tạo phòng, gửi link, sync real-time, chat và thả cảm xúc. Không cần tài khoản.</p>
+        </div>
+        <div class="hero-card">
+          <label>Tên hiển thị</label>
+          <input id="nameInput" placeholder="Tên của bạn" />
+          <label>Room ID</label>
+          <div class="row">
+            <input id="roomInput" placeholder="main-room" />
+            <button id="joinBtn">Vào phòng</button>
+          </div>
+          <small>Mở 2 tab hoặc 2 máy cùng phòng để test sync.</small>
+        </div>
+      </header>
+
+      <main class="grid">
+        <section class="card player-card">
+          <div class="card-header">
+            <div>
+              <h2>Đang phát</h2>
+              <p id="trackMeta">Chưa có bài nào</p>
+            </div>
+            <span class="status" id="statusBadge">Offline</span>
+          </div>
+
+          <div id="playerWrap">
+            <div id="player"></div>
+          </div>
+
+          <div class="controls">
+            <button id="playBtn">Phát</button>
+            <button id="pauseBtn">Tạm dừng</button>
+            <button id="nextBtn">Bài tiếp theo</button>
+            <button class="ghost" data-reaction="❤️">❤️</button>
+            <button class="ghost" data-reaction="😂">😂</button>
+            <button class="ghost" data-reaction="🔥">🔥</button>
+          </div>
+
+          <div class="meta-box">
+            <div>
+              <strong>Trạng thái phòng</strong>
+              <p id="roomSummary">Chưa kết nối</p>
+            </div>
+            <div class="reactions" id="reactions"></div>
+          </div>
+        </section>
+
+        <section class="card">
+          <div class="card-header">
+            <div>
+              <h2>Hàng chờ chung</h2>
+              <p>Ai cũng có thể thêm bài</p>
+            </div>
+          </div>
+
+          <label>Link YouTube</label>
+          <input id="urlInput" placeholder="https://www.youtube.com/watch?v=..." />
+          <label>Tiêu đề tùy chọn</label>
+          <div class="row">
+            <input id="titleInput" placeholder="Tên bài hát" />
+            <button id="addBtn">Thêm bài</button>
+          </div>
+
+          <div id="queueList" class="queue-list"></div>
+        </section>
+
+        <section class="card chat-card">
+          <div class="card-header">
+            <div>
+              <h2>Trò chuyện</h2>
+              <p>Nói chuyện trong lúc nghe</p>
+            </div>
+          </div>
+          <div id="memberList" class="members"></div>
+          <div id="chatList" class="chat-list"></div>
+          <div class="row sticky-input">
+            <input id="chatInput" placeholder="Nhắn tin..." />
+            <button id="sendBtn">Gửi</button>
+          </div>
+        </section>
+      </main>
+    </div>
+
+    <script src="/app.js"></script>
+  </body>
+</html>
