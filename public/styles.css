@@ -87,3 +87,91 @@ button.ghost { background: #232b36; color: var(--text); }
 button.small { padding:8px 10px; border-radius:12px; font-size:13px; }
 button.danger { background:#7f1d1d; color:#fff; }
 button:disabled { opacity:.45; cursor:not-allowed; }
+.queue-item {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  justify-content: space-between;
+  background: #151515;
+  border: 1px solid #2a2a2a;
+  border-radius: 14px;
+  padding: 12px;
+  margin-bottom: 10px;
+}
+
+.queue-item.active {
+  border-color: #ffffff55;
+  background: #1d1d1d;
+}
+
+.queue-main {
+  flex: 1;
+  cursor: pointer;
+}
+
+.queue-title {
+  font-weight: 600;
+  margin-bottom: 4px;
+}
+
+.queue-meta {
+  font-size: 12px;
+  color: #a0a0a0;
+}
+
+.queue-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.queue-actions button {
+  min-width: 40px;
+}
+
+.chat-item {
+  background: #151515;
+  border: 1px solid #2a2a2a;
+  border-radius: 12px;
+  padding: 10px;
+  margin-bottom: 10px;
+}
+
+.chat-head {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 4px;
+  font-size: 12px;
+  color: #bdbdbd;
+}
+
+.member-chip {
+  display: inline-block;
+  background: #1b1b1b;
+  border: 1px solid #2c2c2c;
+  padding: 6px 10px;
+  border-radius: 999px;
+  margin: 0 6px 6px 0;
+  font-size: 13px;
+}
+
+.reaction-float {
+  position: absolute;
+  bottom: 8px;
+  font-size: 30px;
+  animation: floatUp 1.6s ease-out forwards;
+  pointer-events: none;
+}
+
+@keyframes floatUp {
+  0% {
+    transform: translateY(10px) scale(0.9);
+    opacity: 0;
+  }
+  20% {
+    opacity: 1;
+  }
+  100% {
+    transform: translateY(-70px) scale(1.15);
+    opacity: 0;
+  }
+}
