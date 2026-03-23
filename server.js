@@ -8,6 +8,7 @@ const server = http.createServer(app);
 const io = new Server(server);
 
 const PORT = process.env.PORT || 3000;
+const YOUTUBE_API_KEY = "AIzaSyBJr_3237FdzC69XbvkxQSAMNdCRlG7pcU";
 
 function extractVideoId(input) {
   if (!input) return '';
@@ -205,6 +206,51 @@ app.use(express.static(path.join(__dirname, 'public')));
 
 app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
+});
+
+app.get('/api/youtube/search', async (req, res) => {
+  const q = String(req.query.q || '').trim();
+
+  if (!q) {
+    return res.json({ items: [] });
+  }
+
+  try {
+    const url = new URL('https://www.googleapis.com/youtube/v3/search');
+    url.searchParams.set('part', 'snippet');
+    url.searchParams.set('type', 'video');
+    url.searchParams.set('maxResults', '10');
+    url.searchParams.set('q', q);
+    url.searchParams.set('key', YOUTUBE_API_KEY);
+
+    const response = await fetch(url.toString(), {
+      headers: { 'User-Agent': 'listen-together-app' }
+    });
+
+    if (!response.ok) {
+      const text = await response.text();
+      console.error('YouTube API error:', response.status, text);
+      return res.status(500).json({ items: [] });
+    }
+
+    const data = await response.json();
+    const items = (data.items || [])
+      .map((item) => ({
+        videoId: item?.id?.videoId || '',
+        title: item?.snippet?.title || 'Không có tiêu đề',
+        channelTitle: item?.snippet?.channelTitle || '',
+        thumbnail:
+          item?.snippet?.thumbnails?.medium?.url ||
+          item?.snippet?.thumbnails?.default?.url ||
+          ''
+      }))
+      .filter((item) => item.videoId);
+
+    return res.json({ items });
+  } catch (err) {
+    console.error('YouTube search failed:', err);
+    return res.status(500).json({ items: [] });
+  }
 });
 
 io.on('connection', (socket) => {
