@@ -342,9 +342,7 @@ window.onYouTubeIframeAPIReady = function () {
         if (!latestState?.playback?.videoId) return;
 
         const state = event.data;
-        const now = getCurrentTimeSafe();
 
-        // Tự động nhảy và phát bài tiếp theo khi bài hiện tại kết thúc
         if (state === YT.PlayerState.ENDED) {
           socket.emit('track:next');
           return;
@@ -353,16 +351,11 @@ window.onYouTubeIframeAPIReady = function () {
         if (syncingFromServer) return;
 
         if (state === YT.PlayerState.PLAYING) {
-          if (!latestState.playback.isPlaying && localUserUnlocked) {
-            socket.emit('playback:play', { position: now });
-          }
           return;
         }
 
         if (state === YT.PlayerState.PAUSED) {
-          if (latestState.playback.isPlaying && localUserUnlocked) {
-            socket.emit('playback:pause', { position: now });
-          }
+          return;
         }
       },
 
@@ -631,7 +624,6 @@ document.querySelectorAll('[data-reaction]').forEach((node) => {
   };
 });
 
-// Resync nhẹ mỗi 3 giây để không bị lệch lâu
 setInterval(() => {
   if (!playerReady || !latestState?.playback?.videoId) return;
 
