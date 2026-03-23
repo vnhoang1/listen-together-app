@@ -1,5 +1,8 @@
 const socket = io();
 
+const MAX_QUEUE_SIZE = 20;
+const NEXT_EMIT_LOCK_MS = 2500;
+
 let player = null;
 let playerReady = false;
 let playerCreated = false;
@@ -9,6 +12,8 @@ let localUserUnlocked = false;
 let suppressPlayerEventsUntil = 0;
 let syncingFromServer = false;
 let hiddenPauseGuardUntil = 0;
+let nextTrackEmitLockedUntil = 0;
+let lastLoadedVideoId = '';
 
 const els = {
   nameInput: document.getElementById('nameInput'),
@@ -80,6 +85,23 @@ function setSuppress(ms = 1200) {
 
 function isSuppressed() {
   return Date.now() < suppressPlayerEventsUntil;
+}
+
+function canEmitNextTrack() {
+  return Date.now() >= nextTrackEmitLockedUntil;
+}
+
+function lockEmitNextTrack(ms = NEXT_EMIT_LOCK_MS) {
+  nextTrackEmitLockedUntil = Date.now() + ms;
+}
+
+function requestNextTrack(reason = 'ended') {
+  if (!joinedRoom) return;
+  if (!canEmitNextTrack()) return;
+
+  lockEmitNextTrack();
+  console.log('[next track]', reason);
+  socket.emit('track:next');
 }
 
 function updateHeader(playback, currentItem, usersCount) {
@@ -204,6 +226,7 @@ function loadRoomVideo(playback, forcePlay = false) {
         videoId: playback.videoId,
         startSeconds: expected
       });
+      lastLoadedVideoId = playback.videoId;
     } else {
       player.seekTo(expected, true);
     }
@@ -255,6 +278,7 @@ function tryPlayCurrentSynced() {
         videoId: playback.videoId,
         startSeconds: expected
       });
+      lastLoadedVideoId = playback.videoId;
     } catch (_) {
       syncingFromServer = false;
       return;
@@ -364,7 +388,7 @@ function createYoutubePlayer() {
         const state = event.data;
 
         if (state === YT.PlayerState.ENDED) {
-          socket.emit('track:next');
+          requestNextTrack('ended');
           return;
         }
 
@@ -390,6 +414,14 @@ function createYoutubePlayer() {
 
       onError: (event) => {
         console.error('YouTube error', event.data);
+
+        const skippableErrors = [2, 5, 100, 101, 150];
+        if (skippableErrors.includes(event.data)) {
+          toast('Video này không phát được ở chế độ nhúng, đang chuyển bài tiếp theo.');
+          requestNextTrack('error');
+          return;
+        }
+
         toast('Video này có thể không phát được ở chế độ nhúng.');
       }
     }
@@ -448,12 +480,14 @@ socket.on('playback:update', (payload) => {
 
     syncingFromServer = true;
     setSuppress(1800);
+    lockEmitNextTrack();
 
     try {
       player.loadVideoById({
         videoId: payload.videoId,
         startSeconds: position
       });
+      lastLoadedVideoId = payload.videoId;
     } catch (_) {
       syncingFromServer = false;
       return;
@@ -490,6 +524,7 @@ socket.on('playback:update', (payload) => {
           videoId: payload.videoId,
           startSeconds: position
         });
+        lastLoadedVideoId = payload.videoId;
       } catch (_) {
         syncingFromServer = false;
         return;
@@ -538,6 +573,7 @@ socket.on('playback:update', (payload) => {
           videoId: payload.videoId,
           startSeconds: position
         });
+        lastLoadedVideoId = payload.videoId;
       } catch (_) {
         syncingFromServer = false;
         return;
@@ -575,6 +611,7 @@ socket.on('playback:update', (payload) => {
           videoId: payload.videoId,
           startSeconds: position
         });
+        lastLoadedVideoId = payload.videoId;
       } catch (_) {
         syncingFromServer = false;
         return;
@@ -617,6 +654,11 @@ els.joinBtn.onclick = () => {
 els.addBtn.onclick = () => {
   if (!joinedRoom) {
     toast('Bạn phải vào phòng trước');
+    return;
+  }
+
+  if ((latestState?.queue || []).length >= MAX_QUEUE_SIZE) {
+    toast(`Hàng chờ tối đa ${MAX_QUEUE_SIZE} bài`);
     return;
   }
 
@@ -676,7 +718,7 @@ els.nextBtn.onclick = () => {
     return;
   }
 
-  socket.emit('track:next');
+  requestNextTrack('manual');
 };
 
 document.querySelectorAll('[data-reaction]').forEach((node) => {
