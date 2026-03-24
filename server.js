@@ -231,6 +231,10 @@ app.use(express.static(path.join(__dirname, 'public')));
 app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
+app.post('/api/upload', upload.single('image'), (req, res) => {
+  if (!req.file) return res.status(400).json({ error: 'Không có file' });
+  res.json({ url: req.file.path });
+});
 
 app.get('/api/youtube/search', async (req, res) => {
   const q = String(req.query.q || '').trim();
