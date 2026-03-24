@@ -1,11 +1,9 @@
-console.log('ENV CHECK:', {
-  cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
-  api_key: process.env.CLOUDINARY_API_KEY ? 'SET' : 'MISSING',
-  api_secret: process.env.CLOUDINARY_API_SECRET ? 'SET' : 'MISSING'
-});
 const multer = require('multer');
 const cloudinary = require('cloudinary').v2;
-const { CloudinaryStorage } = require('multer-storage-cloudinary');
+const express = require('express');
+const http = require('http');
+const path = require('path');
+const { Server } = require('socket.io');
 
 cloudinary.config({
   cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
@@ -13,23 +11,10 @@ cloudinary.config({
   api_secret: process.env.CLOUDINARY_API_SECRET
 });
 
-const storage = new CloudinaryStorage({
-  cloudinary,
-  params: {
-    folder: 'listen-together',
-    allowed_formats: ['jpg', 'jpeg', 'png', 'gif', 'webp'],
-    transformation: [{ width: 800, crop: 'limit' }]
-  }
-});
-
 const upload = multer({
-  storage,
+  storage: multer.memoryStorage(),
   limits: { fileSize: 5 * 1024 * 1024 }
 });
-const express = require('express');
-const http = require('http');
-const path = require('path');
-const { Server } = require('socket.io');
 
 const app = express();
 const server = http.createServer(app);
@@ -236,9 +221,23 @@ app.use(express.static(path.join(__dirname, 'public')));
 app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
-app.post('/api/upload', upload.single('image'), (req, res) => {
+
+app.post('/api/upload', upload.single('image'), async (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'Không có file' });
-  res.json({ url: req.file.path });
+
+  try {
+    const result = await new Promise((resolve, reject) => {
+      cloudinary.uploader.upload_stream(
+        { folder: 'listen-together', transformation: [{ width: 800, crop: 'limit' }] },
+        (err, result) => err ? reject(err) : resolve(result)
+      ).end(req.file.buffer);
+    });
+
+    res.json({ url: result.secure_url });
+  } catch (err) {
+    console.error('Cloudinary upload error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
 });
 
 app.get('/api/youtube/search', async (req, res) => {
@@ -519,24 +518,25 @@ io.on('connection', (socket) => {
     io.to(roomId).emit('chat:new', msg);
     broadcastRoom(roomId);
   });
+
   socket.on('chat:image', ({ url }) => {
-  const roomId = socket.data.roomId;
-  if (!roomId) return;
+    const roomId = socket.data.roomId;
+    if (!roomId) return;
 
-  const room = getRoom(roomId);
-  const safeUrl = String(url || '').trim();
-  if (!safeUrl.startsWith('https://res.cloudinary.com/')) return;
+    const room = getRoom(roomId);
+    const safeUrl = String(url || '').trim();
+    if (!safeUrl.startsWith('https://res.cloudinary.com/')) return;
 
-  const msg = {
-    id: Math.random().toString(36).slice(2, 10),
-    user: socket.data.name || 'Khách',
-    image: safeUrl,
-    time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-  };
+    const msg = {
+      id: Math.random().toString(36).slice(2, 10),
+      user: socket.data.name || 'Khách',
+      image: safeUrl,
+      time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+    };
 
-  room.chat.push(msg);
-  io.to(roomId).emit('chat:new', msg);
-});
+    room.chat.push(msg);
+    io.to(roomId).emit('chat:new', msg);
+  });
 
   socket.on('reaction:send', ({ emoji }) => {
     const roomId = socket.data.roomId;
