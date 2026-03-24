@@ -920,8 +920,11 @@ setInterval(() => {
 
   if (playback.isPlaying && localUserUnlocked && drift > 4) {
     try {
-      setSuppress(1000);
-      player.seekTo(expected, true);
+      const duration = player.getDuration?.() || Infinity;
+      if (expected < duration - 3) {
+        setSuppress(1000);
+        player.seekTo(expected, true);
+      }
     } catch (_) {
       // ignore
     }
