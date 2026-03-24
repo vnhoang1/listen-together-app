@@ -514,6 +514,24 @@ io.on('connection', (socket) => {
     io.to(roomId).emit('chat:new', msg);
     broadcastRoom(roomId);
   });
+  socket.on('chat:image', ({ url }) => {
+  const roomId = socket.data.roomId;
+  if (!roomId) return;
+
+  const room = getRoom(roomId);
+  const safeUrl = String(url || '').trim();
+  if (!safeUrl.startsWith('https://res.cloudinary.com/')) return;
+
+  const msg = {
+    id: Math.random().toString(36).slice(2, 10),
+    user: socket.data.name || 'Khách',
+    image: safeUrl,
+    time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+  };
+
+  room.chat.push(msg);
+  io.to(roomId).emit('chat:new', msg);
+});
 
   socket.on('reaction:send', ({ emoji }) => {
     const roomId = socket.data.roomId;
