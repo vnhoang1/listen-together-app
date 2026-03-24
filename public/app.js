@@ -946,3 +946,35 @@ setInterval(() => {
     }
   }
 }, 3000);
+async function uploadImage(file) {
+  const formData = new FormData();
+  formData.append('image', file);
+
+  const res = await fetch('/api/upload', { method: 'POST', body: formData });
+  if (!res.ok) throw new Error('Upload thất bại');
+  const data = await res.json();
+  return data.url;
+}
+
+async function sendImageToChat(file) {
+  if (!joinedRoom) { toast('Bạn phải vào phòng trước'); return; }
+  if (!file || !file.type.startsWith('image/')) return;
+
+  try {
+    const url = await uploadImage(file);
+    socket.emit('chat:image', { url });
+  } catch (err) {
+    toast('Upload ảnh thất bại');
+  }
+}
+
+els.chatInput.addEventListener('paste', (e) => {
+  const items = e.clipboardData?.items || [];
+  for (const item of items) {
+    if (item.type.startsWith('image/')) {
+      e.preventDefault();
+      sendImageToChat(item.getAsFile());
+      return;
+    }
+  }
+});
