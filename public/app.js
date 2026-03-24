@@ -215,7 +215,23 @@ function showReaction(emoji) {
 function appendChatMessage(msg) {
   if (!latestState) return;
   latestState.chat = [...(latestState.chat || []), msg].slice(-100);
-  renderChat(latestState.chat);
+
+  const div = document.createElement('div');
+  div.className = 'chat-item';
+  div.innerHTML = `
+    <div class="chat-head">
+      <strong>${escapeHtml(msg.user)}</strong>
+      <span>${escapeHtml(msg.time)}</span>
+    </div>
+    <div>${escapeHtml(msg.text)}</div>
+  `;
+  els.chatList.appendChild(div);
+
+  while (els.chatList.children.length > 100) {
+    els.chatList.removeChild(els.chatList.firstChild);
+  }
+
+  els.chatList.scrollTop = els.chatList.scrollHeight;
 }
 
 function lockPlayerInteraction() {
