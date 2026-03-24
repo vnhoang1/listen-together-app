@@ -380,7 +380,7 @@ function loadRoomVideo(playback, forcePlay = false) {
         startSeconds: expected
       });
       lastLoadedVideoId = playback.videoId;
-      recentTrackSwitchUntil = Date.now() + 6000;
+      recentTrackSwitchUntil = Date.now() + 10000;
     } else {
       player.seekTo(expected, true);
     }
@@ -429,7 +429,7 @@ function tryPlayCurrentSynced() {
         startSeconds: expected
       });
       lastLoadedVideoId = playback.videoId;
-      recentTrackSwitchUntil = Date.now() + 6000;
+      recentTrackSwitchUntil = Date.now() + 10000;
     } catch (_) {
       syncingFromServer = false;
       return;
@@ -640,7 +640,7 @@ socket.on('playback:update', (payload) => {
         startSeconds: position
       });
       lastLoadedVideoId = payload.videoId;
-      recentTrackSwitchUntil = Date.now() + 6000;
+      recentTrackSwitchUntil = Date.now() + 10000;
     } catch (_) {
       syncingFromServer = false;
       return;
@@ -674,7 +674,7 @@ socket.on('playback:update', (payload) => {
           startSeconds: position
         });
         lastLoadedVideoId = payload.videoId;
-        recentTrackSwitchUntil = Date.now() + 6000;
+        recentTrackSwitchUntil = Date.now() + 10000;
       } catch (_) {
         syncingFromServer = false;
         return;
@@ -720,7 +720,7 @@ socket.on('playback:update', (payload) => {
           startSeconds: position
         });
         lastLoadedVideoId = payload.videoId;
-        recentTrackSwitchUntil = Date.now() + 6000;
+        recentTrackSwitchUntil = Date.now() + 10000;
       } catch (_) {
         syncingFromServer = false;
         return;
@@ -759,7 +759,7 @@ socket.on('playback:update', (payload) => {
           startSeconds: position
         });
         lastLoadedVideoId = payload.videoId;
-        recentTrackSwitchUntil = Date.now() + 6000;
+        recentTrackSwitchUntil = Date.now() + 10000;
       } catch (_) {
         syncingFromServer = false;
         return;
