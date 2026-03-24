@@ -137,14 +137,19 @@ function renderMembers(users = []) {
 }
 
 function renderChat(chat = []) {
-  els.chatList.innerHTML = chat
+ els.chatList.innerHTML = chat
     .map((msg) => `
       <div class="chat-item">
         <div class="chat-head">
           <strong>${escapeHtml(msg.user)}</strong>
           <span>${escapeHtml(msg.time)}</span>
         </div>
-        <div>${escapeHtml(msg.text)}</div>
+        <div>
+          ${msg.image 
+            ? `<img src="${escapeHtml(msg.image)}" style="max-width:200px;max-height:200px;border-radius:8px;cursor:pointer" onclick="window.open(this.src)">` 
+            : escapeHtml(msg.text)
+          }
+        </div>
       </div>
     `)
     .join('');
