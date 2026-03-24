@@ -223,7 +223,10 @@ function appendChatMessage(msg) {
       <strong>${escapeHtml(msg.user)}</strong>
       <span>${escapeHtml(msg.time)}</span>
     </div>
-    <div>${escapeHtml(msg.text)}</div>
+    <div>${msg.image
+      ? `<img src="${escapeHtml(msg.image)}" style="max-width:200px;max-height:200px;border-radius:8px;cursor:pointer" onclick="window.open(this.src)">`
+      : escapeHtml(msg.text)
+    }</div>
   `;
   els.chatList.appendChild(div);
 
@@ -233,7 +236,6 @@ function appendChatMessage(msg) {
 
   els.chatList.scrollTop = els.chatList.scrollHeight;
 }
-
 function lockPlayerInteraction() {
   const playerWrap = document.getElementById('playerWrap');
   if (!playerWrap) return;
