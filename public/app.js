@@ -980,3 +980,19 @@ els.chatInput.addEventListener('paste', (e) => {
     }
   }
 });
+
+const imageInput = document.getElementById('imageInput');
+const imageBtn = document.getElementById('imageBtn');
+
+imageBtn.onclick = () => {
+  if (!joinedRoom) { toast('Bạn phải vào phòng trước'); return; }
+  imageInput.click();
+};
+
+imageInput.addEventListener('change', () => {
+  const file = imageInput.files?.[0];
+  if (file) {
+    sendImageToChat(file);
+    imageInput.value = '';
+  }
+});
