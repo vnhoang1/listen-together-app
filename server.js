@@ -484,19 +484,23 @@ io.on('connection', (socket) => {
     if (!roomId) return;
 
     const room = getRoom(roomId);
+    if (!room.queue.length) return;
 
-    if (room.currentIndex < room.queue.length - 1) {
-      moveToTrack(room, room.currentIndex + 1, true);
+    const nextIndex =
+      room.currentIndex < room.queue.length - 1
+        ? room.currentIndex + 1
+        : 0;
 
-      io.to(roomId).emit('playback:update', {
-        action: 'load',
-        videoId: room.playback.videoId,
-        position: 0,
-        updatedAt: room.playback.updatedAt
-      });
+    moveToTrack(room, nextIndex, true);
 
-      broadcastRoom(roomId);
-    }
+    io.to(roomId).emit('playback:update', {
+      action: 'load',
+      videoId: room.playback.videoId,
+      position: 0,
+      updatedAt: room.playback.updatedAt
+    });
+
+    broadcastRoom(roomId);
   });
 
   socket.on('chat:send', ({ text }) => {
