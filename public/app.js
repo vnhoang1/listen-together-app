@@ -20,6 +20,11 @@ let recentTrackSwitchUntil = 0;
 let searchDebounceTimer = null;
 let currentSearchToken = 0;
 
+// ── Volume & Loop state ──────────────────────────────────────────
+let loopEnabled = false;
+let isMuted = false;
+let lastVolume = 80;
+
 const els = {
   nameInput: document.getElementById('nameInput'),
   roomInput: document.getElementById('roomInput'),
@@ -40,7 +45,11 @@ const els = {
   trackMeta: document.getElementById('trackMeta'),
   roomSummary: document.getElementById('roomSummary'),
   statusBadge: document.getElementById('statusBadge'),
-  reactions: document.getElementById('reactions')
+  reactions: document.getElementById('reactions'),
+  volumeSlider: document.getElementById('volumeSlider'),
+  muteBtn: document.getElementById('muteBtn'),
+  volumeLabel: document.getElementById('volumeLabel'),
+  loopBtn: document.getElementById('loopBtn'),
 };
 
 function toast(message) {
@@ -106,6 +115,17 @@ function requestNextTrack(reason = 'ended') {
   if (!joinedRoom) return;
   if (!canEmitNextTrack()) return;
 
+  // Nếu loop bật và bài kết thúc tự nhiên → quay lại đầu queue
+  if (loopEnabled && reason === 'ended') {
+    const queue = latestState?.queue || [];
+    if (queue.length > 0) {
+      lockEmitNextTrack();
+      console.log('[loop] restarting queue from index 0');
+      socket.emit('track:select', { index: 0 });
+      return;
+    }
+  }
+
   lockEmitNextTrack();
   console.log('[next track]', reason);
   socket.emit('track:next');
@@ -137,7 +157,7 @@ function renderMembers(users = []) {
 }
 
 function renderChat(chat = []) {
- els.chatList.innerHTML = chat
+  els.chatList.innerHTML = chat
     .map((msg) => `
       <div class="chat-item">
         <div class="chat-head">
@@ -145,8 +165,8 @@ function renderChat(chat = []) {
           <span>${escapeHtml(msg.time)}</span>
         </div>
         <div>
-          ${msg.image 
-            ? `<img src="${escapeHtml(msg.image)}" style="max-width:200px;max-height:200px;border-radius:8px;cursor:pointer" onclick="window.open(this.src)">` 
+          ${msg.image
+            ? `<img src="${escapeHtml(msg.image)}" style="max-width:200px;max-height:200px;border-radius:8px;cursor:pointer" onclick="window.open(this.src)">`
             : escapeHtml(msg.text)
           }
         </div>
@@ -241,6 +261,7 @@ function appendChatMessage(msg) {
 
   els.chatList.scrollTop = els.chatList.scrollHeight;
 }
+
 function lockPlayerInteraction() {
   const playerWrap = document.getElementById('playerWrap');
   if (!playerWrap) return;
@@ -525,6 +546,14 @@ function renderState(state) {
   }
 }
 
+function applyVolumeToPlayer() {
+  try {
+    if (playerReady && player?.setVolume) {
+      player.setVolume(isMuted ? 0 : lastVolume);
+    }
+  } catch (_) {}
+}
+
 function createYoutubePlayer() {
   if (playerCreated) return;
   if (!window.YT || !window.YT.Player) return;
@@ -553,6 +582,7 @@ function createYoutubePlayer() {
         playerReady = true;
         els.roomSummary.textContent = 'Player sẵn sàng';
         lockPlayerInteraction();
+        applyVolumeToPlayer();
 
         if (latestState?.playback?.videoId) {
           loadRoomVideo(latestState.playback, false);
@@ -618,6 +648,8 @@ document.addEventListener('visibilitychange', () => {
     setSuppress(1500);
   }
 });
+
+// ── Socket events ────────────────────────────────────────────────
 
 socket.on('connect', () => {
   console.log('[socket] connected', socket.id);
@@ -813,6 +845,8 @@ socket.on('playback:update', (payload) => {
   }
 });
 
+// ── Button handlers ──────────────────────────────────────────────
+
 els.joinBtn.onclick = () => {
   const roomId = (els.roomInput.value || 'main-room').trim() || 'main-room';
   const name = (els.nameInput.value || 'Khách').trim() || 'Khách';
@@ -917,6 +951,44 @@ els.nextBtn.onclick = () => {
   requestNextTrack('manual');
 };
 
+// ── Volume controls ──────────────────────────────────────────────
+
+els.volumeSlider?.addEventListener('input', () => {
+  const vol = Number(els.volumeSlider.value);
+  els.volumeLabel.textContent = vol + '%';
+  lastVolume = vol > 0 ? vol : lastVolume;
+  isMuted = vol === 0;
+  els.muteBtn.textContent = isMuted ? '🔇' : '🔊';
+  try { player?.setVolume?.(vol); } catch (_) {}
+});
+
+els.muteBtn?.addEventListener('click', () => {
+  if (!playerReady) return;
+  isMuted = !isMuted;
+  if (isMuted) {
+    try { player?.setVolume?.(0); } catch (_) {}
+    els.volumeSlider.value = 0;
+    els.volumeLabel.textContent = '0%';
+    els.muteBtn.textContent = '🔇';
+  } else {
+    const vol = lastVolume || 80;
+    try { player?.setVolume?.(vol); } catch (_) {}
+    els.volumeSlider.value = vol;
+    els.volumeLabel.textContent = vol + '%';
+    els.muteBtn.textContent = '🔊';
+  }
+});
+
+// ── Loop toggle ──────────────────────────────────────────────────
+
+els.loopBtn?.addEventListener('click', () => {
+  loopEnabled = !loopEnabled;
+  els.loopBtn.textContent = loopEnabled ? '🔁 Lặp: Bật' : '🔁 Lặp: Tắt';
+  els.loopBtn.style.opacity = loopEnabled ? '1' : '0.55';
+});
+
+// ── Reactions ────────────────────────────────────────────────────
+
 document.querySelectorAll('[data-reaction]').forEach((node) => {
   node.onclick = () => {
     if (!joinedRoom) {
@@ -927,6 +999,8 @@ document.querySelectorAll('[data-reaction]').forEach((node) => {
     socket.emit('reaction:send', { emoji: node.dataset.reaction });
   };
 });
+
+// ── Drift correction loop ────────────────────────────────────────
 
 setInterval(() => {
   if (!playerReady || !latestState?.playback?.videoId) return;
@@ -953,6 +1027,15 @@ setInterval(() => {
     }
   }
 }, 3000);
+
+// ── Volume sync interval (phòng YouTube tự reset volume) ─────────
+
+setInterval(() => {
+  if (playerReady) applyVolumeToPlayer();
+}, 5000);
+
+// ── Image upload ─────────────────────────────────────────────────
+
 async function uploadImage(file) {
   const formData = new FormData();
   formData.append('image', file);
