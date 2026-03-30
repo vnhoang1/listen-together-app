@@ -20,8 +20,7 @@ let recentTrackSwitchUntil = 0;
 let searchDebounceTimer = null;
 let currentSearchToken = 0;
 
-// ── Volume & Loop state ──────────────────────────────────────────
-let loopEnabled = false;
+// ── Volume state ────────────────────────────────────────────────
 let isMuted = false;
 let lastVolume = 80;
 
@@ -49,7 +48,6 @@ const els = {
   volumeSlider: document.getElementById('volumeSlider'),
   muteBtn: document.getElementById('muteBtn'),
   volumeLabel: document.getElementById('volumeLabel'),
-  loopBtn: document.getElementById('loopBtn'),
 };
 
 function toast(message) {
@@ -115,8 +113,8 @@ function requestNextTrack(reason = 'ended') {
   if (!joinedRoom) return;
   if (!canEmitNextTrack()) return;
 
-  // Nếu loop bật và bài kết thúc tự nhiên → quay lại đầu queue
-  if (loopEnabled && reason === 'ended') {
+  // Khi phát hết playlist → tự động quay lại đầu danh sách
+  if (reason === 'ended') {
     const queue = latestState?.queue || [];
     if (queue.length > 0) {
       lockEmitNextTrack();
@@ -979,13 +977,6 @@ els.muteBtn?.addEventListener('click', () => {
   }
 });
 
-// ── Loop toggle ──────────────────────────────────────────────────
-
-els.loopBtn?.addEventListener('click', () => {
-  loopEnabled = !loopEnabled;
-  els.loopBtn.textContent = loopEnabled ? '🔁 Lặp: Bật' : '🔁 Lặp: Tắt';
-  els.loopBtn.style.opacity = loopEnabled ? '1' : '0.55';
-});
 
 // ── Reactions ────────────────────────────────────────────────────
 
